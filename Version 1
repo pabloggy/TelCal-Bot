@@ -1,0 +1,71 @@
+import datetime
+import os.path
+import pickle
+import telegram
+from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.errors import HttpError
+from googleapiclient.discovery import build
+
+
+# Configuración de los scopes y los nombres de los archivos para las credenciales y el token
+SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+CREDENTIALS_FILE = 'credentials.json'
+TOKEN_FILE = 'token.pickle'
+
+# Configuración del bot de Telegram
+TELEGRAM_TOKEN = 'tu_token_de_telegram'
+TELEGRAM_CHAT_ID = 'tu_chat_id_de_telegram'
+
+# Función para obtener la fecha actual
+def get_today():
+    return datetime.datetime.utcnow().isoformat() + 'Z'  # 'Z' indica la zona horaria UTC
+
+# Función para obtener los cumpleaños del calendario de Google
+def get_birthdays():
+    creds = None
+    # Si el archivo token.pickle existe, cargamos las credenciales de ahí
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, 'rb') as token:
+            creds = pickle.load(token)
+    # Si no hay credenciales válidas disponibles, se solicita al usuario que inicie sesión
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)
+        # Se guardan las credenciales en el archivo token.pickle para futuros accesos
+        with open(TOKEN_FILE, 'wb') as token:
+            pickle.dump(creds, token)
+
+    service = build('calendar', 'v3', credentials=creds)
+
+    # Se obtienen los eventos del calendario que tengan la palabra "cumpleaños" en la descripción
+    events_result = service.events().list(calendarId='primary', timeMin=get_today(),
+                                          maxResults=10, singleEvents=True,
+                                          orderBy='startTime', q='cumpleaños').execute()
+    events = events_result.get('items', [])
+
+    # Se obtiene la información de cada evento de cumpleaños
+    birthdays = []
+    if not events:
+        print('No se encontraron eventos de cumpleaños próximos.')
+    for event in events:
+        start = event['start'].get('dateTime', event['start'].get('date'))
+        name = event['summary']
+        birthday = {'name': name, 'date': start}
+        birthdays.append(birthday)
+
+    return birthdays
+
+# Función para enviar un mensaje de Telegram
+def send_telegram_message(message):
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+
+# Función principal del script
+def main():
+    birthdays = get_birthdays()
+    for birthday in birthdays:
+        message = f"Feliz cumpleaños, {birthday['name
